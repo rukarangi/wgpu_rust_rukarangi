@@ -1,6 +1,8 @@
 use crate::texture;
 use std::path::Path;
 use core::ops::Range;
+use wgpu::util::DeviceExt;
+use anyhow::Context;
 
 pub trait Vertex {
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a>;
@@ -19,10 +21,22 @@ impl Vertex for ModelVertex {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<ModelVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::InputStepMode::Vertex,
-            attributes: &wgpu::vertex_attr_array![
-                0 => Float3,
-                1 => Float2,
-                2 => Float3
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float2,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 5]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float3,
+                },
             ],
         }
     }
@@ -31,6 +45,7 @@ impl Vertex for ModelVertex {
 pub struct Material {
     pub name: String,
     pub diffuse_texture: texture::Texture,
+    pub bind_group: wgpu::BindGroup,
 }
 
 pub struct Mesh {
@@ -50,29 +65,59 @@ pub trait DrawModel<'a, 'b>
 where
     'b: 'a,
 {
-    fn draw_mesh(&mut self, mesh: &'b Mesh);
+    fn draw_mesh(&mut self, mesh: &'b Mesh, material: &'b Material, uniforms: &'b wgpu::BindGroup);
     fn draw_mesh_instanced(
         &mut self,
         mesh: &'b Mesh,
+        material: &'b Material,
         instances: Range<u32>,
+        uniforms: &'b wgpu::BindGroup,
+    );
+
+    fn draw_model(&mut self, model: &'b Model, uniforms: &'b wgpu::BindGroup);
+    fn draw_model_instanced(
+        &mut self,
+        model: &'b Model,
+        instances: Range<u32>,
+        uniforms: &'b wgpu::BindGroup,
     );
 }
 impl<'a, 'b> DrawModel<'a, 'b> for wgpu::RenderPass<'a>
 where
     'b: 'a,
 {
-    fn draw_mesh(&mut self, mesh: &'b Mesh) {
-        self.draw_mesh_instanced(mesh, 0..1);
+    fn draw_mesh(&mut self, mesh: &'b Mesh, material: &'b Material, uniforms: &'b wgpu::BindGroup) {
+        self.draw_mesh_instanced(mesh, material, 0..1, uniforms);
     }
 
     fn draw_mesh_instanced(
         &mut self,
         mesh: &'b Mesh,
+        material: &'b Material,
         instances: Range<u32>,
-    ){
+        uniforms: &'b wgpu::BindGroup,
+    ) {
         self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
         self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        self.set_bind_group(0, &material.bind_group, &[]);
+        self.set_bind_group(1, &uniforms, &[]);
         self.draw_indexed(0..mesh.num_elements, 0, instances);
+    }
+
+    fn draw_model(&mut self, model: &'b Model, uniforms: &'b wgpu::BindGroup) {
+        self.draw_model_instanced(model, 0..1, uniforms);
+    }
+
+    fn draw_model_instanced(
+        &mut self,
+        model: &'b Model,
+        instances: Range<u32>,
+        uniforms: &'b wgpu::BindGroup,
+    ) {
+        for mesh in &model.meshes {
+            let material = &model.materials[mesh.material];
+            self.draw_mesh_instanced(mesh, material, instances.clone(), uniforms);
+        }
     }
 }
 
@@ -82,14 +127,14 @@ impl Model {
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
         path: P,
-    ) -> Result<Self> {
+    ) -> Result<Self, anyhow::Error> {
         let (obj_models, obj_materials) = tobj::load_obj(path.as_ref(), true)?;
 
         let containing_folder = path.as_ref().parent()
             .context("Directory has no parent")?;
 
         let mut materials = Vec::new();
-        for mat in obj_models {
+        for mat in obj_materials {
             let diffuse_path = mat.diffuse_texture;
             let diffuse_texture = texture::Texture::load(device, queue, containing_folder.join(diffuse_path))?;
 

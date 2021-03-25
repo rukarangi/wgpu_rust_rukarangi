@@ -16,7 +16,7 @@ impl Texture {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         path: P,
-    ) -> Result<(Self, wgpu::CommandBuffer), failure::Error> {
+    ) -> Result<Self, anyhow::Error> {
         let path_copy = path.as_ref().to_path_buf();
         let label = path_copy.to_str();
 
@@ -74,7 +74,7 @@ impl Texture {
         img: &image::DynamicImage,
         label: Option<&str>
     ) -> Result<Self> {
-        let rgba = img.as_rgba().unwrap();
+        let rgba = img.to_rgba();
         let dimensions = img.dimensions();
 
         let size = wgpu::Extent3d {
@@ -102,7 +102,7 @@ impl Texture {
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
-            rgba,
+            &rgba,
             wgpu::TextureDataLayout {
                 offset: 0,
                 bytes_per_row: 4 * dimensions.0,
