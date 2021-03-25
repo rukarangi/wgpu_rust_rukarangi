@@ -16,6 +16,8 @@ wgpu = "0.7"
 futures = "0.3"
 bytemuck = { version = "1.4", features = [ "derive" ] }
 anyhow = "1.0"
+tobj = "*"
+failure = "*"
 
 [build-dependencies]
 anyhow = "1.0"

@@ -8,6 +8,7 @@ use winit::{
 use futures::executor::block_on;
 use wgpu::util::DeviceExt;
 mod texture;
+mod model;
 
 fn main() {
     env_logger::init();
@@ -282,8 +283,12 @@ impl State {
         use cgmath::Rotation3;
         use cgmath::InnerSpace;
 
+        const SPACE_BETWEEN: f32 = 3.0;
         let instances = (0..NUM_INSTANCES_PER_ROW).flat_map(|z| {
             (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+                let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+
                 let position = cgmath::Vector3 {x: x as f32, y: 0.0, z: z as f32} - INSTANCE_DISPLACEMENT;
 
                 let rotation = if position.is_zero() {
@@ -435,7 +440,7 @@ impl State {
                 module: &vs_module,
                 entry_point: "main", 
                 buffers: &[
-                    Vertex::desc(),
+                    model::ModelVertex::desc(),
                     InstanceRaw::desc(),
                 ],
             },
@@ -490,6 +495,14 @@ impl State {
         let num_indices =  INDICES.len() as u32;
 
         let camera_controller = CameraController::new(0.2);
+
+        let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
+        let obj_model = model::Model::load(
+            &device,
+            &queue,
+            &texture_bind_group_layout,
+            res_dir.join("cube.obj"),
+        ).unwrap();
         
         Self {
             surface,
@@ -578,11 +591,15 @@ impl State {
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.uniform_bind_group, &[]);
 
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            use model::DrawModel;
+            render_pass.draw_mesh_instanced(&self.obj_model.meshes[0], 0..self.instances.len() as u32);
+
+
+            // render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            // render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            // render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
+            // render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
